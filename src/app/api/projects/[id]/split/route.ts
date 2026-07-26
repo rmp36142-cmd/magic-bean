@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import fs from "node:fs/promises";
 import { prisma } from "@/lib/db";
+import { diskPath } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import { splitScriptIntoShots } from "@/lib/llm/shotSplitter";
 
@@ -25,6 +27,14 @@ export async function POST(
     );
   }
 
+  // Capture the outgoing shot ids so their narration files can be removed —
+  // re-splitting discards every shot, and the audio on disk would otherwise be
+  // orphaned with no row left pointing at it.
+  const previousShots = await prisma.shot.findMany({
+    where: { projectId: id },
+    select: { id: true },
+  });
+
   await prisma.$transaction([
     prisma.shot.deleteMany({ where: { projectId: id } }),
     prisma.project.update({
@@ -44,9 +54,15 @@ export async function POST(
     }),
   ]);
 
+  await Promise.all(
+    previousShots.map((s) =>
+      fs.rm(diskPath("audio", s.id), { recursive: true, force: true }).catch(() => {}),
+    ),
+  );
+
   const updated = await prisma.project.findUnique({
     where: { id },
-    include: { shots: { orderBy: { order: "asc" } } },
+    include: { shots: { orderBy: { order: "asc" }, include: { audio: true } } },
   });
   return NextResponse.json(updated);
 }

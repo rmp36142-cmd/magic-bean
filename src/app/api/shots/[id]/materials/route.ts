@@ -15,7 +15,9 @@ export async function GET(
 
   const url = new URL(request.url);
   const keyword =
-    url.searchParams.get("keyword") ?? shot.keywordsEn?.split(",")[0] ?? shot.keywordsZh?.split(",")[0];
+    url.searchParams.get("keyword") ??
+    shot.keywordsEn?.split(",")[0] ??
+    shot.keywordsZh?.split(",")[0];
   if (!keyword) {
     return NextResponse.json({ error: "缺少搜索关键词" }, { status: 400 });
   }
@@ -38,35 +40,29 @@ export async function GET(
     );
   }
 
-  const candidates = await Promise.all(
-    items.map((item) =>
-      prisma.materialCandidate.upsert({
-        where: {
-          shotId_provider_sourceId: {
-            shotId: shot.id,
-            provider: item.provider,
-            sourceId: item.sourceId,
-          },
-        },
-        create: {
-          shotId: shot.id,
-          provider: item.provider,
-          sourceId: item.sourceId,
-          type: item.type,
-          previewUrl: item.previewUrl,
-          downloadUrl: item.downloadUrl,
-          width: item.width,
-          height: item.height,
-          durationMs: item.durationMs,
-          attribution: item.attribution,
-        },
-        update: {
-          previewUrl: item.previewUrl,
-          downloadUrl: item.downloadUrl,
-        },
-      }),
-    ),
-  );
+  // The candidate table is a cache of *the latest search* for this shot, so
+  // replace it wholesale. Previously every search upserted more rows and none
+  // were ever removed, so candidates grew without bound as the user retried
+  // different keywords.
+  const candidates = await prisma.$transaction(async (tx) => {
+    await tx.materialCandidate.deleteMany({ where: { shotId: shot.id } });
+    if (items.length === 0) return [];
+    await tx.materialCandidate.createMany({
+      data: items.map((item) => ({
+        shotId: shot.id,
+        provider: item.provider,
+        sourceId: item.sourceId,
+        type: item.type,
+        previewUrl: item.previewUrl,
+        downloadUrl: item.downloadUrl,
+        width: item.width,
+        height: item.height,
+        durationMs: item.durationMs,
+        attribution: item.attribution,
+      })),
+    });
+    return tx.materialCandidate.findMany({ where: { shotId: shot.id } });
+  });
 
   return NextResponse.json(candidates);
 }

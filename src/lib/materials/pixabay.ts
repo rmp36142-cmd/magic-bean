@@ -1,4 +1,5 @@
 import type { MaterialItem, MaterialType } from "@/lib/materials/types";
+import { fetchWithTimeout } from "@/lib/http";
 
 type PixabayVideoRendition = { url: string; width: number; height: number };
 
@@ -40,7 +41,7 @@ export async function searchPixabay(
       ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(keyword)}&per_page=${safePerPage}`
       : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(keyword)}&image_type=photo&per_page=${safePerPage}`;
 
-  const res = await fetch(endpoint);
+  const res = await fetchWithTimeout(endpoint);
   if (!res.ok) {
     throw new Error(`Pixabay 请求失败 (${res.status})`);
   }

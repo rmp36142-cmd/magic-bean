@@ -1,18 +1,20 @@
 import { prisma } from "@/lib/db";
 import { composeProject, type ExportableShot } from "@/lib/ffmpeg/pipeline";
+import { runJob } from "@/lib/jobs/runner";
+import { resolveAspect } from "@/lib/aspect";
 
 export async function runExportJob(jobId: string): Promise<void> {
-  const job = await prisma.exportJob.findUnique({ where: { id: jobId } });
+  const job = await prisma.job.findUnique({ where: { id: jobId } });
   if (!job) return;
 
-  try {
+  await runJob(jobId, async (progress) => {
     const project = await prisma.project.findUnique({ where: { id: job.projectId } });
     if (!project) throw new Error("项目不存在");
 
     const shots = await prisma.shot.findMany({
       where: { projectId: job.projectId },
       orderBy: { order: "asc" },
-      include: { audio: true },
+      include: { audio: true, subtitles: { orderBy: { order: "asc" } } },
     });
 
     const exportable: ExportableShot[] = shots.map((s) => ({
@@ -22,12 +24,12 @@ export async function runExportJob(jobId: string): Promise<void> {
       materialUrl: s.materialUrl ?? "",
       durationMs: s.durationMs ?? 0,
       audioPublicPath: s.audio?.filePath ?? "",
+      subtitles: s.subtitles.map((c) => ({
+        text: c.text,
+        startMs: c.startMs,
+        endMs: c.endMs,
+      })),
     }));
-
-    await prisma.exportJob.update({
-      where: { id: jobId },
-      data: { status: "running", progress: 1, stage: "准备中" },
-    });
 
     const result = await composeProject(
       jobId,
@@ -35,31 +37,16 @@ export async function runExportJob(jobId: string): Promise<void> {
       {
         transitionsEnabled: project.transitionsEnabled,
         backgroundMusicPublicPath: project.backgroundMusicPath,
+        aspect: resolveAspect(project.aspectRatio),
       },
-      async (stage, progress) => {
-        await prisma.exportJob.update({ where: { id: jobId }, data: { stage, progress } });
-      },
+      progress,
     );
 
-    await prisma.$transaction([
-      prisma.exportJob.update({
-        where: { id: jobId },
-        data: {
-          status: "done",
-          progress: 100,
-          stage: "完成",
-          outputPath: result.outputPublicPath,
-        },
-      }),
-      prisma.project.update({ where: { id: job.projectId }, data: { status: "done" } }),
-    ]);
-  } catch (err) {
-    await prisma.exportJob.update({
-      where: { id: jobId },
-      data: {
-        status: "failed",
-        errorMessage: err instanceof Error ? err.message : "导出失败",
-      },
+    await prisma.project.update({
+      where: { id: job.projectId },
+      data: { status: "done" },
     });
-  }
+
+    return { outputPath: result.outputPublicPath };
+  });
 }

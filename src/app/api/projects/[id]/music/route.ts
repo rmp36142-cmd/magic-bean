@@ -5,6 +5,24 @@ import { prisma } from "@/lib/db";
 import { diskPath, ensureDir, publicUrl } from "@/lib/storage";
 
 const ALLOWED_EXTENSIONS = [".mp3", ".m4a", ".wav", ".ogg", ".aac"];
+const MAX_MUSIC_BYTES = 30 * 1024 * 1024;
+
+// Removes whatever music file this project currently has, whatever its
+// extension — needed both on delete and before writing a replacement in a
+// different format, which would otherwise silently orphan the old file.
+async function removeExistingMusic(projectId: string, storedPath: string | null) {
+  if (storedPath) {
+    await fs
+      .rm(diskPath("music", `${projectId}${path.extname(storedPath)}`), { force: true })
+      .catch(() => {});
+    return;
+  }
+  await Promise.all(
+    ALLOWED_EXTENSIONS.map((ext) =>
+      fs.rm(diskPath("music", `${projectId}${ext}`), { force: true }).catch(() => {}),
+    ),
+  );
+}
 
 // Pexels/Pixabay's public APIs don't cover music, so background music is
 // simply a file the user brings themselves (their own free-license track,
@@ -25,6 +43,14 @@ export async function POST(
     return NextResponse.json({ error: "缺少音频文件" }, { status: 400 });
   }
 
+  // Check the declared size before reading the body into memory.
+  if (file.size > MAX_MUSIC_BYTES) {
+    return NextResponse.json(
+      { error: `音频文件过大（上限 ${MAX_MUSIC_BYTES / 1024 / 1024}MB）` },
+      { status: 413 },
+    );
+  }
+
   const ext = path.extname(file.name).toLowerCase() || ".mp3";
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
     return NextResponse.json(
@@ -33,16 +59,20 @@ export async function POST(
     );
   }
 
+  const buffer = Buffer.from(await file.arrayBuffer());
+  if (buffer.byteLength > MAX_MUSIC_BYTES) {
+    return NextResponse.json({ error: "音频文件过大" }, { status: 413 });
+  }
+
+  await removeExistingMusic(id, project.backgroundMusicPath);
+
   const dir = diskPath("music");
   await ensureDir(dir);
-  const diskFilePath = path.join(dir, `${id}${ext}`);
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(diskFilePath, buffer);
+  await fs.writeFile(path.join(dir, `${id}${ext}`), buffer);
 
-  const publicPath = publicUrl("music", `${id}${ext}`);
   const updated = await prisma.project.update({
     where: { id },
-    data: { backgroundMusicPath: publicPath },
+    data: { backgroundMusicPath: publicUrl("music", `${id}${ext}`) },
   });
 
   return NextResponse.json(updated);
@@ -57,10 +87,7 @@ export async function DELETE(
   if (!project) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
-  if (project.backgroundMusicPath) {
-    const ext = path.extname(project.backgroundMusicPath);
-    await fs.rm(diskPath("music", `${id}${ext}`), { force: true }).catch(() => {});
-  }
+  await removeExistingMusic(id, project.backgroundMusicPath);
   const updated = await prisma.project.update({
     where: { id },
     data: { backgroundMusicPath: null },

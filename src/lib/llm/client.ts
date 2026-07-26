@@ -1,7 +1,16 @@
+import { fetchWithTimeout, LLM_TIMEOUT_MS } from "@/lib/http";
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export class LlmConfigError extends Error {}
 export class LlmRequestError extends Error {}
+
+// Some gateways helpfully include the inbound request (headers and all) in
+// their error bodies. That body is surfaced to the UI, so scrub the key.
+function redactSecrets(text: string, apiKey: string): string {
+  if (!apiKey || apiKey.length < 8) return text;
+  return text.split(apiKey).join("***");
+}
 
 // Calls any OpenAI-compatible `/chat/completions` endpoint. Covers DeepSeek,
 // Kimi/Moonshot, GLM, OpenRouter, Ollama, self-hosted proxies, etc.
@@ -21,23 +30,29 @@ export async function chatComplete({
   }
 
   const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.4,
+      }),
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.4,
-    }),
-  });
+    LLM_TIMEOUT_MS,
+  );
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new LlmRequestError(
-      `LLM 请求失败 (${res.status}): ${body.slice(0, 500)}`,
+      // Never echo the request back — the Authorization header and key must not
+      // reach the browser through an error message.
+      `LLM 请求失败 (${res.status}): ${redactSecrets(body.slice(0, 500), apiKey)}`,
     );
   }
 

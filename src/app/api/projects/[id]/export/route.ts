@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { runExportJob } from "@/lib/ffmpeg/exportJob";
+import { createJob, findActiveJob } from "@/lib/jobs/runner";
 
 export async function POST(
   _request: Request,
@@ -12,9 +13,9 @@ export async function POST(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  const active = await prisma.exportJob.findFirst({
-    where: { projectId: id, status: { in: ["queued", "running"] } },
-  });
+  // findActiveJob reaps stale jobs first, so a job orphaned by a restart can no
+  // longer block this forever.
+  const active = await findActiveJob(id, "export");
   if (active) {
     return NextResponse.json(
       { error: "已经有一个导出任务在进行中", job: active },
@@ -22,28 +23,12 @@ export async function POST(
     );
   }
 
-  const job = await prisma.exportJob.create({
-    data: { projectId: id, status: "queued", progress: 0 },
-  });
-
-  await prisma.project.update({ where: { id }, data: { status: "exporting" } });
+  const job = await createJob(id, "export");
 
   // Deliberately not awaited: this process must stay alive for the whole
   // export, which is fine on the persistent Node server ffmpeg already
-  // requires (see README) — the client polls GET /api/export/[jobId].
+  // requires (see README) — the client polls GET /api/jobs/[jobId].
   void runExportJob(job.id);
 
   return NextResponse.json(job, { status: 202 });
-}
-
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const jobs = await prisma.exportJob.findMany({
-    where: { projectId: id },
-    orderBy: { createdAt: "desc" },
-  });
-  return NextResponse.json(jobs);
 }

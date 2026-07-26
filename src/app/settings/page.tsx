@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { StoragePanel } from "@/components/StoragePanel";
 
 type MaskedSettings = {
   llmBaseUrl: string;
@@ -176,6 +177,10 @@ export default function SettingsPage() {
             )}
           </div>
         </fieldset>
+
+        <div className="border-t border-neutral-200 pt-6 dark:border-neutral-800">
+          <StoragePanel />
+        </div>
 
         <button
           type="submit"

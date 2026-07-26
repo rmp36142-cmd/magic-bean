@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { prisma } from "@/lib/db";
 import { diskPath } from "@/lib/storage";
 
-const patchSchema = z.object({ text: z.string().trim().min(1) });
+const patchSchema = z.object({ text: z.string().trim().min(1).max(2000) });
 
 // Editing a shot's narration text invalidates whatever audio/subtitles were
 // generated for the old text — they'd no longer match what's read aloud.
@@ -42,6 +42,10 @@ export async function PATCH(
         ]
       : []),
   ]);
+
+  if (textChanged) {
+    await fs.rm(diskPath("audio", id), { recursive: true, force: true }).catch(() => {});
+  }
 
   return NextResponse.json(textChanged ? { ...shot, audio: null } : shot);
 }

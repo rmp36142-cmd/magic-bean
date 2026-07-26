@@ -25,14 +25,17 @@ model Settings {
 }
 
 model Project {
-  id         String      @id @default(cuid())
-  title      String
-  script     String
-  status     String      @default("draft") // draft | splitting | ready | exporting | done
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  shots      Shot[]
-  exportJobs ExportJob[]
+  id        String   @id @default(cuid())
+  title     String
+  script    String
+  // draft (no shots yet) | ready (shots exist) | done (exported at least once).
+  // Long-running work is tracked on Job rather than here, so this never gets
+  // stuck in a transient state when a job dies.
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  shots     Shot[]
+  jobs      Job[]
 
   // optional user-uploaded background music, mixed in at low volume under
   // the narration during export (Pexels/Pixabay's public APIs don't cover
@@ -41,6 +44,10 @@ model Project {
   // crossfade transitions between shots on export; a toggle because it's a
   // materially more complex ffmpeg path than a hard-cut concat
   transitionsEnabled  Boolean @default(true)
+  // 16:9 landscape | 9:16 vertical (Douyin/Bilibili) | 1:1 square
+  aspectRatio         String  @default("16:9")
+  // Edge TTS short name, e.g. zh-CN-XiaoxiaoNeural
+  voice               String  @default("zh-CN-XiaoxiaoNeural")
 }
 
 model Shot {
@@ -100,10 +107,14 @@ model AudioSegment {
   provider   String @default("edge-tts")
 }
 
+// One cue of burned-in subtitle. A shot's narration is split into several of
+// these so the on-screen text tracks the speech instead of dumping the whole
+// shot's paragraph at once. Times are relative to the START OF THE SHOT.
 model SubtitleSegment {
   id      String @id @default(cuid())
   shotId  String
   shot    Shot   @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  order   Int    @default(0)
   text    String
   startMs Int
   endMs   Int
@@ -111,17 +122,55 @@ model SubtitleSegment {
   @@index([shotId])
 }
 
-model ExportJob {
+// Long-running background work (bulk TTS, video export). Generic over kind so
+// both share one polling endpoint and one staleness-reaping path.
+//
+// heartbeatAt is refreshed while the job is genuinely making progress
+// (including from ffmpeg's own output). A job in queued/running whose
+// heartbeat has gone cold is assumed orphaned by a process restart and gets
+// reaped, so a crash can never permanently block new jobs for a project.
+model Job {
   id           String   @id @default(cuid())
   projectId    String
   project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  status       String   @default("queued") // queued | running | done | failed
+  kind         String // audio | export
+  status       String   @default("queued") // queued | running | done | failed | canceled
   progress     Int      @default(0)
   stage        String?
   outputPath   String?
   errorMessage String?
+  heartbeatAt  DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@index([projectId])
+  @@index([projectId, kind])
+}
+
+// A stock result the user starred, promoted out of the per-shot candidate
+// cache into a library reusable across every shot and project ("收藏" tab).
+model FavoriteMaterial {
+  id          String   @id @default(cuid())
+  provider    String
+  sourceId    String
+  type        String // video | photo
+  previewUrl  String
+  downloadUrl String
+  attribution String?
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, sourceId])
+}
+
+// Material the user uploaded themselves, for when the free stock libraries
+// have nothing fitting a keyword ("我的" tab). filePath/thumbPath are public
+// /storage/... paths; the export pipeline resolves those straight off disk
+// instead of re-fetching over HTTP.
+model UserMaterial {
+  id           String   @id @default(cuid())
+  type         String // video | photo
+  filePath     String
+  thumbPath    String?
+  originalName String
+  durationMs   Int?
+  createdAt    DateTime @default(now())
 }

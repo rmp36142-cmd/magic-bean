@@ -1,4 +1,5 @@
 import type { MaterialItem, MaterialType } from "@/lib/materials/types";
+import { fetchWithTimeout } from "@/lib/http";
 
 type PexelsVideoFile = {
   link: string;
@@ -53,7 +54,7 @@ export async function searchPexels(
       ? `https://api.pexels.com/videos/search?query=${encodeURIComponent(keyword)}&per_page=${perPage}`
       : `https://api.pexels.com/v1/search?query=${encodeURIComponent(keyword)}&per_page=${perPage}`;
 
-  const res = await fetch(endpoint, { headers: { Authorization: apiKey } });
+  const res = await fetchWithTimeout(endpoint, { headers: { Authorization: apiKey } });
   if (!res.ok) {
     throw new Error(`Pexels 请求失败 (${res.status})`);
   }

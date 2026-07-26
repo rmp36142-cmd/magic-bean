@@ -10,19 +10,24 @@ export function PreviewPlayer({ shots }: { shots: ShotDTO[] }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const current = playable[index];
+  // The playable list shrinks whenever a shot is deleted or its text is edited
+  // (which invalidates that shot's audio). Clamp during render so we never
+  // dereference past the end, and settle the real state in the effect below.
+  const safeIndex = playable.length === 0 ? 0 : Math.min(index, playable.length - 1);
+  const current = playable[safeIndex];
+
   const totalMs = playable.reduce((sum, s) => sum + (s.audio?.durationMs ?? 0), 0);
   const elapsedBeforeMs = playable
-    .slice(0, index)
+    .slice(0, safeIndex)
     .reduce((sum, s) => sum + (s.audio?.durationMs ?? 0), 0);
 
   useEffect(() => {
     if (!playing) return;
     audioRef.current?.play().catch(() => {});
     videoRef.current?.play().catch(() => {});
-  }, [index, playing]);
+  }, [safeIndex, playing]);
 
-  if (playable.length === 0) {
+  if (playable.length === 0 || !current) {
     return (
       <p className="rounded border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-400 dark:border-neutral-700">
         还没有可预览的分镜 —— 需要先为分镜选择素材并生成配音
@@ -41,13 +46,15 @@ export function PreviewPlayer({ shots }: { shots: ShotDTO[] }) {
   }
 
   function handleEnded() {
-    if (index + 1 < playable.length) {
-      setIndex(index + 1);
+    if (safeIndex + 1 < playable.length) {
+      setIndex(safeIndex + 1);
     } else {
       setPlaying(false);
       setIndex(0);
     }
   }
+
+  const shotDurationSec = (current.audio?.durationMs ?? 0) / 1000;
 
   return (
     <div className="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
@@ -59,7 +66,15 @@ export function PreviewPlayer({ shots }: { shots: ShotDTO[] }) {
             src={current.materialUrl!}
             alt=""
             className="h-full w-full object-cover"
-            style={{ animation: playing ? "kenburns 6s ease-out forwards" : undefined }}
+            // Matches the export's Ken Burns: spans the shot's real narration
+            // length, and pausing freezes it rather than snapping back to 1x.
+            style={{
+              animationName: "kenburns",
+              animationDuration: `${Math.max(shotDurationSec, 0.1)}s`,
+              animationTimingFunction: "linear",
+              animationFillMode: "forwards",
+              animationPlayState: playing ? "running" : "paused",
+            }}
           />
         ) : (
           <video
@@ -91,21 +106,10 @@ export function PreviewPlayer({ shots }: { shots: ShotDTO[] }) {
           {playing ? "暂停" : "播放"}
         </button>
         <span className="text-xs text-neutral-400">
-          分镜 {index + 1} / {playable.length} · {(elapsedBeforeMs / 1000).toFixed(1)}s /{" "}
+          分镜 {safeIndex + 1} / {playable.length} · {(elapsedBeforeMs / 1000).toFixed(1)}s /{" "}
           {(totalMs / 1000).toFixed(1)}s
         </span>
       </div>
-
-      <style jsx>{`
-        @keyframes kenburns {
-          from {
-            transform: scale(1);
-          }
-          to {
-            transform: scale(1.12);
-          }
-        }
-      `}</style>
     </div>
   );
 }
