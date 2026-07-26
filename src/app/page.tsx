@@ -38,6 +38,14 @@ export default function Home() {
     router.push(`/projects/${project.id}`);
   }
 
+  async function handleDelete(e: React.MouseEvent, id: string, title: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(`删除项目「${title}」？此操作不可撤销。`)) return;
+    await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    setProjects((list) => list.filter((p) => p.id !== id));
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
       <h1 className="text-center text-3xl font-semibold">
@@ -83,8 +91,14 @@ export default function Home() {
                   className="flex items-center justify-between py-3 text-sm hover:opacity-70"
                 >
                   <span>{p.title}</span>
-                  <span className="text-neutral-400">
+                  <span className="flex items-center gap-3 text-neutral-400">
                     {p._count.shots} 个分镜 · {p.status}
+                    <button
+                      onClick={(e) => handleDelete(e, p.id, p.title)}
+                      className="text-neutral-400 hover:text-red-600 hover:underline"
+                    >
+                      删除
+                    </button>
                   </span>
                 </Link>
               </li>

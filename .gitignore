@@ -43,7 +43,7 @@ yarn-error.log*
 /src/generated/prisma
 
 # local material/audio/export cache
-/storage/
+/public/storage/
 
 # typescript
 *.tsbuildinfo

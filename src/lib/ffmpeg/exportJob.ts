@@ -6,6 +6,9 @@ export async function runExportJob(jobId: string): Promise<void> {
   if (!job) return;
 
   try {
+    const project = await prisma.project.findUnique({ where: { id: job.projectId } });
+    if (!project) throw new Error("项目不存在");
+
     const shots = await prisma.shot.findMany({
       where: { projectId: job.projectId },
       orderBy: { order: "asc" },
@@ -26,9 +29,17 @@ export async function runExportJob(jobId: string): Promise<void> {
       data: { status: "running", progress: 1, stage: "准备中" },
     });
 
-    const result = await composeProject(jobId, exportable, async (stage, progress) => {
-      await prisma.exportJob.update({ where: { id: jobId }, data: { stage, progress } });
-    });
+    const result = await composeProject(
+      jobId,
+      exportable,
+      {
+        transitionsEnabled: project.transitionsEnabled,
+        backgroundMusicPublicPath: project.backgroundMusicPath,
+      },
+      async (stage, progress) => {
+        await prisma.exportJob.update({ where: { id: jobId }, data: { stage, progress } });
+      },
+    );
 
     await prisma.$transaction([
       prisma.exportJob.update({

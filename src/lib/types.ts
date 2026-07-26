@@ -29,6 +29,8 @@ export type ProjectDTO = {
   script: string;
   status: string;
   shots: ShotDTO[];
+  transitionsEnabled: boolean;
+  backgroundMusicPath: string | null;
 };
 
 export type MaterialCandidateDTO = {
@@ -53,4 +55,5 @@ export type ExportJobDTO = {
   stage: string | null;
   outputPath: string | null;
   errorMessage: string | null;
+  createdAt: string;
 };

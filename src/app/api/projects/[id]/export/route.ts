@@ -12,6 +12,16 @@ export async function POST(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
+  const active = await prisma.exportJob.findFirst({
+    where: { projectId: id, status: { in: ["queued", "running"] } },
+  });
+  if (active) {
+    return NextResponse.json(
+      { error: "已经有一个导出任务在进行中", job: active },
+      { status: 409 },
+    );
+  }
+
   const job = await prisma.exportJob.create({
     data: { projectId: id, status: "queued", progress: 0 },
   });

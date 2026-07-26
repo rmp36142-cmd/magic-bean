@@ -33,6 +33,14 @@ model Project {
   updatedAt  DateTime    @updatedAt
   shots      Shot[]
   exportJobs ExportJob[]
+
+  // optional user-uploaded background music, mixed in at low volume under
+  // the narration during export (Pexels/Pixabay's public APIs don't cover
+  // music, so there's no free-material-source equivalent for this one)
+  backgroundMusicPath String?
+  // crossfade transitions between shots on export; a toggle because it's a
+  // materially more complex ffmpeg path than a hard-cut concat
+  transitionsEnabled  Boolean @default(true)
 }
 
 model Shot {

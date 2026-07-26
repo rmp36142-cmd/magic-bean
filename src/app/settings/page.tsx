@@ -19,6 +19,9 @@ type FormState = {
   pixabayApiKey: string;
 };
 
+type LlmTestResult = { ok: boolean; reply?: string; error?: string };
+type MaterialsTestResult = Record<string, { ok: boolean; count?: number; error?: string }>;
+
 const emptyForm: FormState = {
   llmBaseUrl: "",
   llmModel: "",
@@ -33,6 +36,10 @@ export default function SettingsPage() {
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
   );
+  const [testingLlm, setTestingLlm] = useState(false);
+  const [llmTest, setLlmTest] = useState<LlmTestResult | null>(null);
+  const [testingMaterials, setTestingMaterials] = useState(false);
+  const [materialsTest, setMaterialsTest] = useState<MaterialsTestResult | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -65,11 +72,33 @@ export default function SettingsPage() {
     setStatus("saved");
   }
 
+  async function handleTestLlm() {
+    setTestingLlm(true);
+    setLlmTest(null);
+    try {
+      const res = await fetch("/api/settings/test-llm", { method: "POST" });
+      setLlmTest(await res.json());
+    } finally {
+      setTestingLlm(false);
+    }
+  }
+
+  async function handleTestMaterials() {
+    setTestingMaterials(true);
+    setMaterialsTest(null);
+    try {
+      const res = await fetch("/api/settings/test-materials", { method: "POST" });
+      setMaterialsTest(await res.json());
+    } finally {
+      setTestingMaterials(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-xl p-8">
       <h1 className="text-xl font-semibold">设置</h1>
       <p className="mt-1 text-sm text-neutral-500">
-        配置你自己的 LLM 接口和素材源 API Key。密钥保存后不会再显示明文。
+        配置你自己的 LLM 接口和素材源 API Key。密钥保存后不会再显示明文。测试连接用的是当前已保存的配置，改完记得先保存再测试。
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6">
@@ -94,6 +123,21 @@ export default function SettingsPage() {
             value={form.llmApiKey}
             onChange={(v) => setForm((f) => ({ ...f, llmApiKey: v }))}
           />
+          <div>
+            <button
+              type="button"
+              onClick={handleTestLlm}
+              disabled={testingLlm}
+              className="rounded border border-neutral-300 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-neutral-700"
+            >
+              {testingLlm ? "测试中…" : "测试连接"}
+            </button>
+            {llmTest && (
+              <span className={`ml-2 text-xs ${llmTest.ok ? "text-green-600" : "text-red-600"}`}>
+                {llmTest.ok ? `连接正常，回复：${llmTest.reply}` : llmTest.error}
+              </span>
+            )}
+          </div>
         </fieldset>
 
         <fieldset className="space-y-3">
@@ -112,6 +156,25 @@ export default function SettingsPage() {
             value={form.pixabayApiKey}
             onChange={(v) => setForm((f) => ({ ...f, pixabayApiKey: v }))}
           />
+          <div>
+            <button
+              type="button"
+              onClick={handleTestMaterials}
+              disabled={testingMaterials}
+              className="rounded border border-neutral-300 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-neutral-700"
+            >
+              {testingMaterials ? "测试中…" : "测试连接"}
+            </button>
+            {materialsTest && (
+              <div className="ml-2 mt-1 inline-block align-top text-xs">
+                {Object.entries(materialsTest).map(([provider, r]) => (
+                  <div key={provider} className={r.ok ? "text-green-600" : "text-red-600"}>
+                    {provider}: {r.ok ? `正常，搜到 ${r.count} 条结果` : r.error}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </fieldset>
 
         <button
