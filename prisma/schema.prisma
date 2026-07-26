@@ -1,0 +1,112 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Singleton row (id is always 1) holding this personal instance's own
+// third-party credentials: LLM endpoint for shot-splitting, and the
+// free stock-material provider keys.
+model Settings {
+  id            Int      @id @default(1)
+  llmBaseUrl    String?
+  llmApiKey     String?
+  llmModel      String?
+  pexelsApiKey  String?
+  pixabayApiKey String?
+  ttsProvider   String   @default("edge-tts")
+  updatedAt     DateTime @updatedAt
+}
+
+model Project {
+  id         String      @id @default(cuid())
+  title      String
+  script     String
+  status     String      @default("draft") // draft | splitting | ready | exporting | done
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  shots      Shot[]
+  exportJobs ExportJob[]
+}
+
+model Shot {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  order       Int
+  text        String
+  description String?
+  keywordsZh  String?
+  keywordsEn  String?
+
+  // currently selected material for this shot
+  materialProvider String? // pexels | pixabay
+  materialType     String? // video | photo
+  materialUrl      String?
+  materialThumbUrl String?
+  durationMs       Int?
+
+  candidates MaterialCandidate[]
+  audio      AudioSegment?
+  subtitles  SubtitleSegment[]
+
+  @@index([projectId])
+}
+
+// cached search results for a shot, so switching material doesn't
+// require re-querying the provider APIs
+model MaterialCandidate {
+  id          String  @id @default(cuid())
+  shotId      String
+  shot        Shot    @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  provider    String // pexels | pixabay
+  type        String // video | photo
+  previewUrl  String
+  downloadUrl String
+  width       Int?
+  height      Int?
+  durationMs  Int?
+  attribution String?
+
+  @@index([shotId])
+}
+
+model AudioSegment {
+  id         String @id @default(cuid())
+  shotId     String @unique
+  shot       Shot   @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  filePath   String
+  durationMs Int
+  provider   String @default("edge-tts")
+}
+
+model SubtitleSegment {
+  id      String @id @default(cuid())
+  shotId  String
+  shot    Shot   @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  text    String
+  startMs Int
+  endMs   Int
+
+  @@index([shotId])
+}
+
+model ExportJob {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status       String   @default("queued") // queued | running | done | failed
+  progress     Int      @default(0)
+  outputPath   String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectId])
+}
