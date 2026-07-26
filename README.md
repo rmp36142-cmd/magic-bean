@@ -41,6 +41,8 @@ npm run dev
   烧录的中文字幕会显示成方块。
 - 导出是常驻进程里的后台任务（提交后立即返回，网页轮询进度），需要一个持续运行的 Node 进程
   （`npm run start`），不能用请求结束就销毁实例的无服务器函数运行。
+- 配音调用的是微软 Edge 朗读服务（`speech.platform.bing.com`），部署环境需要能访问这个域名；
+  默认语音是 `zh-CN-XiaoxiaoNeural`，想换声音改 `src/lib/tts/edgeTts.ts` 里的 `DEFAULT_VOICE` 常量。
 
 ## 已知取舍 / 后续可扩展
 
