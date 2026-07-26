@@ -50,7 +50,11 @@ model Shot {
   materialType     String? // video | photo
   materialUrl      String?
   materialThumbUrl String?
-  durationMs       Int?
+
+  // this shot's timeline duration, driven by its narration audio length
+  // (see AudioSegment) — material is looped/trimmed by the export pipeline
+  // to fit it, not the other way around
+  durationMs Int?
 
   candidates MaterialCandidate[]
   audio      AudioSegment?
@@ -66,6 +70,7 @@ model MaterialCandidate {
   shotId      String
   shot        Shot    @relation(fields: [shotId], references: [id], onDelete: Cascade)
   provider    String // pexels | pixabay
+  sourceId    String // the id the provider assigned to this photo/video
   type        String // video | photo
   previewUrl  String
   downloadUrl String
@@ -74,6 +79,7 @@ model MaterialCandidate {
   durationMs  Int?
   attribution String?
 
+  @@unique([shotId, provider, sourceId])
   @@index([shotId])
 }
 
@@ -103,6 +109,7 @@ model ExportJob {
   project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   status       String   @default("queued") // queued | running | done | failed
   progress     Int      @default(0)
+  stage        String?
   outputPath   String?
   errorMessage String?
   createdAt    DateTime @default(now())

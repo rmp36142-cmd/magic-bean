@@ -1,0 +1,52 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { getSettings } from "@/lib/settings";
+import { splitScriptIntoShots } from "@/lib/llm/shotSplitter";
+
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const project = await prisma.project.findUnique({ where: { id } });
+  if (!project) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  const settings = await getSettings();
+
+  let shots;
+  try {
+    shots = await splitScriptIntoShots(project.script, settings);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "拆分镜头失败" },
+      { status: 502 },
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.shot.deleteMany({ where: { projectId: id } }),
+    prisma.project.update({
+      where: { id },
+      data: {
+        status: "ready",
+        shots: {
+          create: shots.map((shot, index) => ({
+            order: index,
+            text: shot.text,
+            description: shot.description,
+            keywordsZh: shot.keywords_zh.join(","),
+            keywordsEn: shot.keywords_en.join(","),
+          })),
+        },
+      },
+    }),
+  ]);
+
+  const updated = await prisma.project.findUnique({
+    where: { id },
+    include: { shots: { orderBy: { order: "asc" } } },
+  });
+  return NextResponse.json(updated);
+}
