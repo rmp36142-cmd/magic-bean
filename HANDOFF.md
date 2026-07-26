@@ -26,11 +26,106 @@ Prisma 7 + SQLite（better-sqlite3 driver adapter）/ 系统 ffmpeg（spawn 调�
 msedge-tts / zod。Node 22。
 
 **状态**：功能完整，Phase 1–6 全部完成，另外做过一轮完整审计并修完所有发现的问题。
-分支 `claude/personal-material-website-yip8ao`，最新提交 `541738d`。
+
+**代码在哪**：GitHub `rmp36142-cmd/magic-bean`，分支
+**`claude/personal-material-website-yip8ao`**。
 
 ---
 
-## 2. 本地跑起来
+## 2. 把代码拉到本地
+
+> ⚠️ **所有代码都在 `claude/personal-material-website-yip8ao` 分支上，还没有合并到 `main`。**
+> `main` 目前只有最初上传的那几张参考截图，直接 clone 默认分支会发现"什么都没有"。
+> 必须显式切到上面这个分支。
+
+### 情况 A：第一次拉（本地还没有这个仓库）
+
+```bash
+# 直接 clone 并切到该分支
+git clone -b claude/personal-material-website-yip8ao \
+  https://github.com/rmp36142-cmd/magic-bean.git
+
+cd magic-bean
+```
+
+如果 clone 时提示要认证（仓库是私有的），用下面任一方式：
+
+```bash
+# 方式一：GitHub CLI（推荐，会处理好登录）
+gh repo clone rmp36142-cmd/magic-bean -- -b claude/personal-material-website-yip8ao
+
+# 方式二：SSH（前提是你的 SSH key 已加到 GitHub 账号）
+git clone -b claude/personal-material-website-yip8ao \
+  git@github.com:rmp36142-cmd/magic-bean.git
+```
+
+### 情况 B：本地已经有这个仓库了
+
+```bash
+cd magic-bean
+git fetch origin
+git checkout claude/personal-material-website-yip8ao
+git pull origin claude/personal-material-website-yip8ao
+```
+
+如果本地有未提交的改动挡住了切分支，先 `git stash`，切完再 `git stash pop`。
+
+### 确认拿到的是最新代码
+
+```bash
+git log --oneline -5
+```
+
+历史里应该能看到这几条（从新到旧大致是）：交接文档相关的提交 →
+`Fix audit findings: crashes, stuck jobs, timeouts, disk growth, A/V quality` →
+`Phase 6: transitions, background music, editing, and cleanup` →
+`Phase 2-5: LLM shot-splitting, material search, TTS, real mp4 export` →
+`Phase 1: project skeleton, data model, settings page`。
+
+更直接的判断方式是确认关键文件都在（这些是最后一轮改动才有的）：
+
+```bash
+ls HANDOFF.md \
+   src/lib/subtitles.ts \
+   src/lib/aspect.ts \
+   src/lib/jobs/runner.ts \
+   src/lib/http.ts \
+   src/app/api/jobs/\[jobId\]/route.ts
+```
+
+全部存在就说明拿到的是最新代码。
+
+### 拉下来之后不会有、需要你自己生成的东西
+
+这些都被 gitignore 了，clone 完是**不存在**的，属于正常现象：
+
+| 路径 | 怎么来 |
+|---|---|
+| `node_modules/` | `npm install` |
+| `.env.local` | `cp .env.example .env.local` 后手动填 key |
+| `dev.db` | `npx prisma migrate deploy` |
+| `src/generated/prisma/` | `npx prisma generate` |
+| `public/storage/` | 运行时自动创建（存配音、素材缓存、导出成片） |
+| `.next/` | `npm run dev` / `npm run build` |
+
+所以拉完代码后直接接着做第 3 节。
+
+### 关于分支
+
+现在的工作都在功能分支上，`main` 还是空的。你可以：
+
+- **就在这个分支上继续开发**（个人项目最省事，推荐）；或者
+- 合并到 `main` 再从 `main` 继续：
+  ```bash
+  git checkout main
+  git merge claude/personal-material-website-yip8ao
+  git push origin main
+  ```
+- 或者在 GitHub 上对这个分支开一个 PR 再合并（如果你想留个记录）。
+
+---
+
+## 3. 本地跑起来
 
 ```bash
 npm install
@@ -73,7 +168,7 @@ SUBTITLE_FONT=     # 可选，默认 "Noto Sans CJK SC"
 
 ---
 
-## 3. 目录导览
+## 4. 目录导览
 
 ```
 src/lib/
@@ -92,7 +187,7 @@ src/lib/
   shots/cues.ts      重新生成某分镜/整个项目的字幕 cue
   ffmpeg/
     exec.ts          spawn 封装：无输出超时 + 绝对超时 + 心跳回调
-    pipeline.ts      ★ 合成主流程（最复杂的文件，改之前先读第 4 节）
+    pipeline.ts      ★ 合成主流程（最复杂的文件，改之前先读第 5 节）
     exportJob.ts     导出任务：装配数据 → 调 pipeline
 
 src/app/api/
@@ -110,22 +205,22 @@ src/components/      ProjectEditor（主编辑器）、ShotRow、ShotMaterialPic
 
 ---
 
-## 4. 改代码前必须知道的几条不变量
+## 5. 改代码前必须知道的几条不变量
 
 这些是踩过坑之后定下来的，破坏其中任何一条都会出难查的 bug。
 
-### 4.1 分镜时长由配音决定，不是由素材决定
+### 5.1 分镜时长由配音决定，不是由素材决定
 `Shot.durationMs` = 该分镜配音的真实时长（ffprobe 测出来的）。素材会被裁剪或循环去凑这个长度，
 不是反过来。字幕时间轴也基于它。改配音 → 必须同步更新 `Shot.durationMs` 和字幕 cue
 （见 `lib/shots/cues.ts`）。
 
-### 4.2 转场靠"预留padding"实现，别动这块的数学
+### 5.2 转场靠"预留padding"实现，别动这块的数学
 开启转场时，每个分镜片段会在挨着转场的那一侧**多渲染半个转场时长**，这段多出来的正好被 xfade 吃掉。
 所以成片总时长仍然精确等于 `sum(shot.durationMs)`，字幕不会漂移。
 见 `pipeline.ts` 的 `computeTransitionPlan()` 和 `joinClipsWithTransitions()`。
-改之前先跑一遍时长断言测试（第 6 节）。
+改之前务必确认成片时长仍等于各分镜配音时长之和（用 ffprobe 量一下就行）。
 
-### 4.3 字幕必须用 ASS，不能退回 SRT + force_style
+### 5.3 字幕必须用 ASS，不能退回 SRT + force_style
 **这是个隐蔽的大坑**：用 `subtitles=x.srt:force_style='FontSize=28,MarginV=60'` 时，libass 把
 这些数值当成它自己默认脚本坐标系（384×288）里的值，再按视频高度缩放。所以同一组参数在
 1280×720 下看着正常，在 720×1280 下字会大好几倍并且被 MarginV 顶出画面外。
@@ -134,26 +229,26 @@ src/components/      ProjectEditor（主编辑器）、ShotRow、ShotMaterialPic
 于是 `aspect.ts` 里的字号和边距就是**真实像素**。同时 `WrapStyle: 2` 关掉 libass 自己的换行，
 换行完全由 `wrapCueText()` 控制（这样中文避头尾规则才生效）。
 
-### 4.4 素材缓存的 key 必须包含"会影响产物"的所有维度
+### 5.4 素材缓存的 key 必须包含"会影响产物"的所有维度
 `clip-<hash>.mp4` 的 hash 由 `materialUrl + materialType + 分辨率 + 时长` 组成。
 少任何一项都会导致换比例/换类型后复用到错误的旧片段。
 
-### 4.5 所有出网请求走 `lib/http.ts`，所有 ffmpeg 走 `lib/ffmpeg/exec.ts`
+### 5.5 所有出网请求走 `lib/http.ts`，所有 ffmpeg 走 `lib/ffmpeg/exec.ts`
 前者保证有超时，后者保证有"卡死检测 + 心跳"。直接用裸 `fetch` 或裸 `spawn` 会让
 挂起的请求永久卡住后台任务。
 
-### 4.6 后台任务靠心跳判活
+### 5.6 后台任务靠心跳判活
 `Job.heartbeatAt` 由进度回调和 ffmpeg 的输出共同刷新。心跳超过 3 分钟没更新的
 `queued/running` 任务会被 `reapStaleJobs()` 判为「进程重启后遗留」自动标失败。
 **这是防止"崩一次就永久锁死导出"的关键**，别把它删了。
 
-### 4.7 客户端组件不要 import 生成的 Prisma client
+### 5.7 客户端组件不要 import 生成的 Prisma client
 用 `lib/types.ts` 里的 DTO。服务端组件传数据给客户端组件时要显式序列化
 （Prisma 返回 `Date`，DTO 用 `string`），参考 `app/projects/[id]/page.tsx`。
 
 ---
 
-## 5. 哪些验证过、哪些没验证过（重要）
+## 6. 哪些验证过、哪些没验证过（重要）
 
 之前的开发是在一个**出网受限的沙箱**里做的，被墙掉了 `api.pexels.com`、`pixabay.com`、
 `speech.platform.bing.com` 和那个 LLM 代理域名。所以：
@@ -181,7 +276,7 @@ src/components/      ProjectEditor（主编辑器）、ShotRow、ShotMaterialPic
 
 ---
 
-## 6. 常用命令
+## 7. 常用命令
 
 ```bash
 npm run dev            # 开发
@@ -196,7 +291,7 @@ npx prisma generate    # 改完 schema 后重新生成 client（不做会报一�
 
 ---
 
-## 7. 已知坑（都踩过，省得你再踩一遍）
+## 8. 已知坑（都踩过，省得你再踩一遍）
 
 | 现象 | 原因 / 解法 |
 |---|---|
@@ -204,7 +299,7 @@ npx prisma generate    # 改完 schema 后重新生成 client（不做会报一�
 | dev 模式下新加的嵌套 API 路由一律 404，但 `npm run build` 里能看到 | Turbopack 路由缓存脏了。停服务 → `rm -rf .next` → 重启 |
 | 删了 `dev.db` 后接口报错/查不到刚建的数据 | dev server 还握着已删除文件的句柄。先停服务，再删库、迁移，最后重启 |
 | 导出的中文字幕是方块 | 宿主机没装中文字体，装 `fonts-noto-cjk` |
-| 竖屏字幕巨大/跑到画面外 | 说明有人把字幕退回 SRT + force_style 了，见 4.3 |
+| 竖屏字幕巨大/跑到画面外 | 说明有人把字幕退回 SRT + force_style 了，见 5.3 |
 | 预览里图片的 Ken Burns 不动 | keyframes 必须放 `globals.css`。styled-jsx 会给 keyframes 改名，而内联 `animationName` 引用的是原名，对不上 |
 | eslint 报 `set-state-in-effect` | effect 里别直接 setState；用 `useEffect(() => { let cancelled=false; (async()=>{...})(); return ()=>{cancelled=true} }, [])` 这种写法 |
 
@@ -213,7 +308,7 @@ npx prisma generate    # 改完 schema 后重新生成 client（不做会报一�
 
 ---
 
-## 8. 可以接着做的事
+## 9. 可以接着做的事
 
 按性价比排序，都是选做：
 
@@ -230,7 +325,7 @@ npx prisma generate    # 改完 schema 后重新生成 client（不做会报一�
 
 ---
 
-## 9. 明确的非目标
+## 10. 明确的非目标
 
 - **没有登录/权限体系**，是单人自用设计。别直接暴露公网。
 - **不能部署到纯 Serverless**（Vercel 等）：需要常驻进程跑 ffmpeg 和后台任务，还要可写磁盘。
